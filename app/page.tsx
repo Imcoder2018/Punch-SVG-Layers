@@ -324,15 +324,16 @@ export default function App() {
     return new XMLSerializer().serializeToString(svgElement);
   };
 
-  // Compute the punch position for a given canvas size, shared by preview and vector merge
-  const getPunchPosition = (w: number, h: number) => {
-    let x = punchSettings.xPos;
-    let y = punchSettings.yPos;
-    if (punchSettings.align === 'right') x = w - punchSettings.xPos;
-    else if (punchSettings.align === 'center') x = w / 2;
-    if (punchSettings.baseline === 'bottom') y = h - punchSettings.yPos;
-    else if (punchSettings.baseline === 'middle') y = h / 2;
-    else if (punchSettings.baseline === 'top') y = punchSettings.yPos;
+  // Compute the punch position for a given canvas size, shared by preview and vector merge.
+  // minX/minY account for SVGs whose viewBox has a non-zero origin.
+  const getPunchPosition = (w: number, h: number, minX = 0, minY = 0) => {
+    let x = minX + punchSettings.xPos;
+    let y = minY + punchSettings.yPos;
+    if (punchSettings.align === 'right')   x = minX + w - punchSettings.xPos;
+    else if (punchSettings.align === 'center') x = minX + w / 2;
+    if (punchSettings.baseline === 'bottom') y = minY + h - punchSettings.yPos;
+    else if (punchSettings.baseline === 'middle') y = minY + h / 2;
+    else if (punchSettings.baseline === 'top')    y = minY + punchSettings.yPos;
     return { x, y };
   };
 
@@ -345,21 +346,11 @@ export default function App() {
     const doc = parser.parseFromString(content, 'image/svg+xml');
     const svgElement = doc.documentElement;
 
-    // Get viewBox or width/height to position accurately
-    let w = 1000;
-    let h = 1000;
-    const viewBox = svgElement.getAttribute('viewBox');
-    if (viewBox) {
-      const parts = viewBox.split(/[ ,]+/);
-      w = parseFloat(parts[2]);
-      h = parseFloat(parts[3]);
-    } else {
-      w = parseFloat(svgElement.getAttribute('width') || '1000');
-      h = parseFloat(svgElement.getAttribute('height') || '1000');
-    }
+    // Use getSvgSize so we get the viewBox origin (minX/minY) as well as dimensions
+    const { w, h, minX, minY } = getSvgSize(svgElement);
 
     const textStr = num.toString();
-    const { x, y } = getPunchPosition(w, h);
+    const { x, y } = getPunchPosition(w, h, minX, minY);
 
     const textEl = doc.createElementNS('http://www.w3.org/2000/svg', 'text');
     textEl.textContent = textStr;
@@ -388,55 +379,79 @@ export default function App() {
     return new XMLSerializer().serializeToString(svgElement);
   };
 
-  // Get the layer's canvas size (viewBox w/h, falling back to width/height attrs)
-  const getSvgSize = (svgElement: Element): { w: number; h: number } => {
-    let w = 1000, h = 1000;
+  // Get the layer's canvas size AND origin from viewBox (or width/height attrs).
+  // Returns minX/minY so callers can correctly offset any absolute positions.
+  const getSvgSize = (svgElement: Element): { w: number; h: number; minX: number; minY: number } => {
+    let w = 1000, h = 1000, minX = 0, minY = 0;
     const viewBox = svgElement.getAttribute('viewBox');
     if (viewBox) {
       const parts = viewBox.split(/[ ,]+/);
-      w = parseFloat(parts[2]);
-      h = parseFloat(parts[3]);
+      if (parts.length >= 4) {
+        minX = parseFloat(parts[0]);
+        minY = parseFloat(parts[1]);
+        w    = parseFloat(parts[2]);
+        h    = parseFloat(parts[3]);
+      }
     } else {
-      w = parseFloat(svgElement.getAttribute('width') || '1000');
+      w = parseFloat(svgElement.getAttribute('width')  || '1000');
       h = parseFloat(svgElement.getAttribute('height') || '1000');
     }
-    return { w, h };
+    return { w, h, minX, minY };
   };
 
   // Build real vector outline path data for the number using opentype.js glyph
   // outlines (this is what makes a boolean op possible — you cannot union/
   // subtract a <text> element, only actual path geometry).
+  //
+  // IMPORTANT — coordinate system alignment:
+  //   getPunchPosition() returns an (x, y) pair where:
+  //     • For 'bottom' baseline: y = h - yPos  (alphabetic baseline, i.e. bottom of most letters)
+  //     • For 'middle'  baseline: y = h / 2    (we want the visual mid-height of the glyphs here)
+  //     • For 'top'     baseline: y = yPos      (we want the top of the cap-height here)
+  //
+  //   opentype's getPath(text, x, y, size) treats y as the ALPHABETIC baseline.
+  //   So for 'bottom' we pass y as-is; for 'top'/'middle' we shift y downward
+  //   by the cap-height (or half of it) so the visual top of the letter sits on
+  //   the anchor point — exactly what SVG dominant-baseline="hanging"/"middle" does.
   const getNumberOutlinePathData = (
     font: opentype.Font,
     text: string,
     w: number,
-    h: number
+    h: number,
+    minX = 0,
+    minY = 0
   ): string => {
-    const { x, y } = getPunchPosition(w, h);
+    const { x, y } = getPunchPosition(w, h, minX, minY);
     const fontSize = punchSettings.fontSize;
 
-    // opentype.getPath() always anchors at the text's left/baseline origin,
-    // so we measure the advance width ourselves to replicate text-anchor
-    // start/middle/end, and to replicate the alphabetic/hanging/middle
-    // baselines the old <text> element relied on.
+    // Advance width for horizontal alignment (replicating text-anchor)
     const advanceWidth = font.getAdvanceWidth(text, fontSize);
-    const ascender = (font.ascender / font.unitsPerEm) * fontSize;
-    const descender = (font.descender / font.unitsPerEm) * fontSize;
 
     let originX = x;
     if (punchSettings.align === 'right') originX = x - advanceWidth;
     else if (punchSettings.align === 'center') originX = x - advanceWidth / 2;
 
-    let originY = y;
-    if (punchSettings.baseline === 'top') originY = y + ascender;
-    else if (punchSettings.baseline === 'middle') originY = y + (ascender + descender) / 2;
-    // 'bottom' baseline in the old code used the alphabetic baseline directly, which
-    // is exactly what opentype's getPath baseline (y) already represents.
+    // Cap-height is the most reliable proxy for "top of a capital letter",
+    // which is what SVG dominant-baseline="hanging" visually aligns to.
+    // Many fonts expose it directly; fall back to 70 % of the UPM if absent.
+    const capHeight = font.tables?.os2?.sCapHeight
+      ? (font.tables.os2.sCapHeight / font.unitsPerEm) * fontSize
+      : (font.ascender / font.unitsPerEm) * fontSize * 0.70;
+
+    let originY = y; // default: 'bottom' — alphabetic baseline matches directly
+    if (punchSettings.baseline === 'top') {
+      // Shift the alphabetic baseline DOWN by cap-height so the top of the
+      // glyph sits at y (matching dominant-baseline="hanging")
+      originY = y + capHeight;
+    } else if (punchSettings.baseline === 'middle') {
+      // Shift DOWN by half the cap-height so the visual midpoint is at y
+      // (matching dominant-baseline="middle" for capital letters)
+      originY = y + capHeight / 2;
+    }
 
     const glyphPath = font.getPath(text, originX, originY, fontSize);
-    // Mirroring is applied afterwards via a transform="matrix(...)" attribute
-    // on the wrapping <path> element (see mergeNumberIntoLayer), not baked
-    // into the 'd' data itself, so we always return the unmirrored outline here.
+    // Mirroring is applied via a transform attribute on the wrapping SVG element
+    // in mergeNumberIntoLayer — NOT baked into the path data itself.
     return glyphPath.toPathData(3);
   };
 
@@ -488,11 +503,11 @@ export default function App() {
     const parser = new DOMParser();
     const doc = parser.parseFromString(layer.content, 'image/svg+xml');
     const svgElement = doc.documentElement;
-    const { w, h } = getSvgSize(svgElement);
+    const { w, h, minX, minY } = getSvgSize(svgElement);
     const textStr = num.toString();
 
-    const numberPathData = getNumberOutlinePathData(font, textStr, w, h);
-    const { x: anchorX } = getPunchPosition(w, h);
+    const numberPathData = getNumberOutlinePathData(font, textStr, w, h, minX, minY);
+    const { x: anchorX } = getPunchPosition(w, h, minX, minY);
     const mirrorTransform = punchSettings.mirror
       ? ` transform="matrix(-1,0,0,1,${2 * anchorX},0)"`
       : '';
