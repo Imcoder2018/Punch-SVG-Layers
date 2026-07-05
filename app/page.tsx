@@ -352,13 +352,27 @@ export default function App() {
     const textStr = num.toString();
     const { x, y } = getPunchPosition(w, h, minX, minY);
 
+    // Inject @font-face so the preview uses the EXACT SAME font as the merge,
+    // otherwise Arial vs Inter metrics will cause visual deviation.
+    const fontName = 'PunchFontCustom';
+    const defs = doc.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    const style = doc.createElementNS('http://www.w3.org/2000/svg', 'style');
+    style.textContent = `
+      @font-face {
+        font-family: '${fontName}';
+        src: url('${punchSettings.fontUrl}');
+      }
+    `;
+    defs.appendChild(style);
+    svgElement.insertBefore(defs, svgElement.firstChild);
+
     const textEl = doc.createElementNS('http://www.w3.org/2000/svg', 'text');
     textEl.textContent = textStr;
     textEl.setAttribute('x', x.toString());
     textEl.setAttribute('y', y.toString());
-    textEl.setAttribute('font-family', punchSettings.fontFamily);
+    textEl.setAttribute('font-family', fontName);
     textEl.setAttribute('font-size', punchSettings.fontSize.toString());
-    textEl.setAttribute('font-weight', 'bold');
+    textEl.setAttribute('font-weight', 'normal');
     textEl.setAttribute('fill', punchSettings.color);
 
     let anchor = punchSettings.align === 'right' ? 'end' : punchSettings.align === 'center' ? 'middle' : 'start';
@@ -545,19 +559,19 @@ export default function App() {
       const mergedPathData = result.pathData;
       if (!mergedPathData) throw new Error('Boolean operation produced no path data.');
 
-      const newSvg = doc.implementation.createDocument('http://www.w3.org/2000/svg', 'svg', null);
-      const rootSvg = newSvg.documentElement;
-      rootSvg.setAttribute('viewBox', svgElement.getAttribute('viewBox') || `0 0 ${w} ${h}`);
-      rootSvg.setAttribute('width', (layer.width || w).toString());
-      rootSvg.setAttribute('height', (layer.height || h).toString());
+      // Preserve all original <svg> attributes (like preserveAspectRatio, width="100%", etc.)
+      // by clearing the old children and appending our single merged path.
+      while (svgElement.firstChild) {
+        svgElement.removeChild(svgElement.firstChild);
+      }
 
-      const mergedPath = newSvg.createElementNS('http://www.w3.org/2000/svg', 'path');
+      const mergedPath = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
       mergedPath.setAttribute('d', mergedPathData);
       mergedPath.setAttribute('fill', layer.color);
       mergedPath.setAttribute('data-merged', 'true');
-      rootSvg.appendChild(mergedPath);
+      svgElement.appendChild(mergedPath);
 
-      return new XMLSerializer().serializeToString(rootSvg);
+      return new XMLSerializer().serializeToString(svgElement);
     } finally {
       paper.project.clear();
     }
@@ -711,10 +725,22 @@ export default function App() {
     const unionW = unionMaxX - unionMinX;
     const unionH = unionMaxY - unionMinY;
 
+    const firstLayerDoc = new DOMParser().parseFromString(layers[0].content, 'image/svg+xml');
+    const firstRoot = firstLayerDoc.documentElement;
+
     const combinedSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     combinedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    combinedSvg.setAttribute('width', unionW.toString());
-    combinedSvg.setAttribute('height', unionH.toString());
+    
+    if (firstRoot.hasAttribute('width')) combinedSvg.setAttribute('width', firstRoot.getAttribute('width')!);
+    else combinedSvg.setAttribute('width', unionW.toString());
+    
+    if (firstRoot.hasAttribute('height')) combinedSvg.setAttribute('height', firstRoot.getAttribute('height')!);
+    else combinedSvg.setAttribute('height', unionH.toString());
+
+    if (firstRoot.hasAttribute('preserveAspectRatio')) {
+      combinedSvg.setAttribute('preserveAspectRatio', firstRoot.getAttribute('preserveAspectRatio')!);
+    }
+
     combinedSvg.setAttribute('viewBox', `${unionMinX} ${unionMinY} ${unionW} ${unionH}`);
 
     layers.forEach((layer, index) => {
