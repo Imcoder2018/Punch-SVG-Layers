@@ -45,6 +45,17 @@ interface ShowcaseSettings {
   canvasHeight: number;
 }
 
+interface WatermarkSettings {
+  enabled: boolean;
+  text: string;
+  color: string;
+  opacity: number;
+  size: number;
+  angle: number;
+  gapX: number;
+  gapY: number;
+}
+
 interface PunchSettings {
   enabled: boolean;
   startNumber: number;
@@ -79,7 +90,10 @@ const getLayerOffsets = (
   count: number,
   preset: string,
   spacingX: number,
-  spacingY: number
+  spacingY: number,
+  baseW: number = 800,
+  baseH: number = 800,
+  scale: number = 1
 ) => {
   const offsets = [];
   let minX = 0, maxX = 0, minY = 0, maxY = 0;
@@ -88,8 +102,8 @@ const getLayerOffsets = (
     let y = 0;
     switch (preset) {
       case 'stacked': break;
-      case 'horizontal': x = i * spacingX; break;
-      case 'vertical': y = i * spacingY; break;
+      case 'horizontal': x = i * (baseW * scale + spacingX); break;
+      case 'vertical': y = i * (baseH * scale + spacingY); break;
       case 'diagonal': x = i * spacingX; y = i * spacingY; break;
       case 'diagonal-reverse': x = -i * spacingX; y = i * spacingY; break;
       case 'zigzag-x': x = i * spacingX; y = (i % 2) * spacingY; break;
@@ -107,7 +121,21 @@ const getLayerOffsets = (
         x = i * spacingX;
         y = Math.sin(i * 1.5) * spacingY;
         break;
-      default: break;
+      default:
+        if (preset.startsWith('grid')) {
+          let cols = 4; // default
+          if (preset === 'grid-auto') {
+            cols = Math.ceil(Math.sqrt(count));
+          } else {
+            const parsed = parseInt(preset.split('-')[1]);
+            if (!isNaN(parsed)) cols = parsed;
+          }
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          x = col * (baseW * scale + spacingX);
+          y = row * (baseH * scale + spacingY);
+        }
+        break;
     }
     offsets.push({ x, y });
     if (x < minX) minX = x;
@@ -139,6 +167,17 @@ export default function App() {
     backgroundColor: '#F3F4F6', // light gray
     canvasWidth: 3000,
     canvasHeight: 2250,
+  });
+
+  const [watermarkSettings, setWatermarkSettings] = useState<WatermarkSettings>({
+    enabled: true,
+    text: 'BetterCuts',
+    color: '#000000',
+    opacity: 0.1,
+    size: 48,
+    angle: -45,
+    gapX: 300,
+    gapY: 300,
   });
 
   const [punchSettings, setPunchSettings] = useState<PunchSettings>({
@@ -633,8 +672,10 @@ export default function App() {
 
     // Calculate bounding box of all layers to center them
     const layersCount = layers.length;
+    const baseW = layers[0]?.width || 800;
+    const baseH = layers[0]?.height || 800;
 
-    const layout = getLayerOffsets(layersCount, showcaseSettings.preset, showcaseSettings.spacingX, showcaseSettings.spacingY);
+    const layout = getLayerOffsets(layersCount, showcaseSettings.preset, showcaseSettings.spacingX, showcaseSettings.spacingY, baseW, baseH, showcaseSettings.scale);
 
     let imagesLoaded = layers.map((layer, index) => {
       return new Promise<{ img: HTMLImageElement, xOff: number, yOff: number, drawW: number, drawH: number, opacity: number, w: number, h: number }>((resolve) => {
@@ -688,6 +729,31 @@ export default function App() {
 
         ctx.globalAlpha = item.opacity;
         ctx.drawImage(item.img, startX + item.xOff, startY + item.yOff, item.drawW, item.drawH);
+        ctx.restore();
+      }
+
+      // Draw Watermark
+      if (watermarkSettings.enabled && watermarkSettings.text) {
+        ctx.save();
+        ctx.globalAlpha = watermarkSettings.opacity;
+        ctx.fillStyle = watermarkSettings.color;
+        ctx.font = `bold ${watermarkSettings.size}px Arial, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        const angleRad = (watermarkSettings.angle * Math.PI) / 180;
+        const diag = Math.sqrt(canvas.width * canvas.width + canvas.height * canvas.height);
+        const stepsX = Math.ceil(diag / watermarkSettings.gapX) * 2;
+        const stepsY = Math.ceil(diag / watermarkSettings.gapY) * 2;
+        
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate(angleRad);
+        
+        for (let ix = -stepsX; ix <= stepsX; ix++) {
+          for (let iy = -stepsY; iy <= stepsY; iy++) {
+            ctx.fillText(watermarkSettings.text, ix * watermarkSettings.gapX, iy * watermarkSettings.gapY);
+          }
+        }
         ctx.restore();
       }
 
@@ -914,7 +980,56 @@ export default function App() {
           {activeTab === 'showcase' && (
             <div className="space-y-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Preset Layout</label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-gray-700">Preset Layout</label>
+                  <button
+                    onClick={() => {
+                      if (layers.length === 0) return;
+                      const baseW = layers[0].width || 800;
+                      const baseH = layers[0].height || 800;
+                      let bestScale = 1;
+                      
+                      // Auto fit math
+                      if (showcaseSettings.preset.startsWith('grid') || showcaseSettings.preset === 'horizontal' || showcaseSettings.preset === 'vertical') {
+                        // For these layouts we want them side-by-side with 5% padding
+                        const padX = showcaseSettings.canvasWidth * 0.05;
+                        const padY = showcaseSettings.canvasHeight * 0.05;
+                        const availW = showcaseSettings.canvasWidth - 2 * padX;
+                        const availH = showcaseSettings.canvasHeight - 2 * padY;
+                        
+                        let cols = layers.length;
+                        let rows = 1;
+                        if (showcaseSettings.preset.startsWith('grid')) {
+                          cols = showcaseSettings.preset === 'grid-auto' ? Math.ceil(Math.sqrt(layers.length)) : parseInt(showcaseSettings.preset.split('-')[1]) || 4;
+                          rows = Math.ceil(layers.length / cols);
+                        } else if (showcaseSettings.preset === 'vertical') {
+                          cols = 1;
+                          rows = layers.length;
+                        }
+
+                        // we assume spacing is a standard 40px
+                        const defaultGap = 40;
+                        const totalW_unscaled = cols * baseW + (cols - 1) * defaultGap;
+                        const totalH_unscaled = rows * baseH + (rows - 1) * defaultGap;
+
+                        const scaleX = availW / totalW_unscaled;
+                        const scaleY = availH / totalH_unscaled;
+                        bestScale = Math.min(scaleX, scaleY);
+
+                        setShowcaseSettings(s => ({ ...s, scale: bestScale, spacingX: defaultGap, spacingY: defaultGap }));
+                      } else {
+                        // For stacked, diagonal, circular, etc. just scale the first layer to fill most of the canvas
+                        const availW = showcaseSettings.canvasWidth * 0.7;
+                        const availH = showcaseSettings.canvasHeight * 0.7;
+                        bestScale = Math.min(availW / baseW, availH / baseH);
+                        setShowcaseSettings(s => ({ ...s, scale: bestScale }));
+                      }
+                    }}
+                    className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200 transition-colors font-medium"
+                  >
+                    Auto Fit Canvas
+                  </button>
+                </div>
                 <select
                   value={showcaseSettings.preset}
                   onChange={(e) => setShowcaseSettings({ ...showcaseSettings, preset: e.target.value })}
@@ -930,6 +1045,11 @@ export default function App() {
                   <option value="circular">Circular / Ring</option>
                   <option value="arch">Arch / Bridge</option>
                   <option value="wave">Sine Wave</option>
+                  <option value="grid-auto">Grid (Auto)</option>
+                  <option value="grid-2">Grid (2 columns)</option>
+                  <option value="grid-3">Grid (3 columns)</option>
+                  <option value="grid-4">Grid (4 columns)</option>
+                  <option value="grid-5">Grid (5 columns)</option>
                 </select>
               </div>
 
@@ -1020,6 +1140,56 @@ export default function App() {
                     onChange={(e) => setShowcaseSettings({ ...showcaseSettings, backgroundColor: e.target.value })}
                     className="flex-1 text-sm border border-gray-200 rounded px-2"
                   />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-gray-100">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-900">Watermark</h3>
+                  <div className="relative inline-block w-10 align-middle select-none transition duration-200 ease-in">
+                    <input type="checkbox" name="wm-toggle" id="wm-toggle" className="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out checked:translate-x-5 checked:border-blue-600" checked={watermarkSettings.enabled} onChange={(e) => setWatermarkSettings({ ...watermarkSettings, enabled: e.target.checked })} />
+                    <label htmlFor="wm-toggle" className="toggle-label block overflow-hidden h-5 rounded-full bg-gray-300 cursor-pointer"></label>
+                  </div>
+                </div>
+                
+                <div className={`space-y-4 ${!watermarkSettings.enabled ? 'opacity-50 pointer-events-none' : ''}`}>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Text</label>
+                    <input type="text" value={watermarkSettings.text} onChange={(e) => setWatermarkSettings({ ...watermarkSettings, text: e.target.value })} className="w-full p-2 border border-gray-300 rounded text-sm focus:ring-blue-500 focus:border-blue-500" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Color</label>
+                      <div className="flex h-[38px]">
+                        <input type="color" value={watermarkSettings.color} onChange={(e) => setWatermarkSettings({ ...watermarkSettings, color: e.target.value })} className="w-10 h-full border border-gray-300 rounded-l p-0 cursor-pointer" />
+                        <input type="text" value={watermarkSettings.color} onChange={(e) => setWatermarkSettings({ ...watermarkSettings, color: e.target.value })} className="flex-1 w-full p-2 border border-gray-300 border-l-0 rounded-r text-sm focus:ring-blue-500 focus:border-blue-500" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Opacity</label>
+                      <input type="range" min="0.05" max="1" step="0.05" value={watermarkSettings.opacity} onChange={(e) => setWatermarkSettings({ ...watermarkSettings, opacity: parseFloat(e.target.value) })} className="w-full accent-blue-600 mt-2" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Size</label>
+                      <input type="range" min="10" max="200" value={watermarkSettings.size} onChange={(e) => setWatermarkSettings({ ...watermarkSettings, size: parseInt(e.target.value) })} className="w-full accent-gray-600" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Angle</label>
+                      <input type="range" min="-90" max="90" value={watermarkSettings.angle} onChange={(e) => setWatermarkSettings({ ...watermarkSettings, angle: parseInt(e.target.value) })} className="w-full accent-gray-600" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Spacing X</label>
+                      <input type="range" min="50" max="1000" step="10" value={watermarkSettings.gapX} onChange={(e) => setWatermarkSettings({ ...watermarkSettings, gapX: parseInt(e.target.value) })} className="w-full accent-gray-600" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Spacing Y</label>
+                      <input type="range" min="50" max="1000" step="10" value={watermarkSettings.gapY} onChange={(e) => setWatermarkSettings({ ...watermarkSettings, gapY: parseInt(e.target.value) })} className="w-full accent-gray-600" />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1166,7 +1336,9 @@ export default function App() {
         className="flex-1 relative overflow-hidden bg-gray-200"
       >
         {layers.length > 0 ? (() => {
-          const layout = getLayerOffsets(layers.length, showcaseSettings.preset, showcaseSettings.spacingX, showcaseSettings.spacingY);
+          const baseW = layers[0]?.width || 800;
+          const baseH = layers[0]?.height || 800;
+          const layout = getLayerOffsets(layers.length, showcaseSettings.preset, showcaseSettings.spacingX, showcaseSettings.spacingY, baseW, baseH, showcaseSettings.scale);
 
           return (
             <div className="absolute inset-0 flex items-center justify-center">
@@ -1227,6 +1399,35 @@ export default function App() {
                     )
                   })}
                 </div>
+
+                {watermarkSettings.enabled && watermarkSettings.text && (
+                  <div className="absolute inset-0 pointer-events-none z-50 overflow-hidden">
+                    <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+                      <pattern
+                        id="watermark-pattern"
+                        width={watermarkSettings.gapX}
+                        height={watermarkSettings.gapY}
+                        patternUnits="userSpaceOnUse"
+                        patternTransform={`rotate(${watermarkSettings.angle})`}
+                      >
+                        <text
+                          x={watermarkSettings.gapX / 2}
+                          y={watermarkSettings.gapY / 2}
+                          dominantBaseline="middle"
+                          textAnchor="middle"
+                          fill={watermarkSettings.color}
+                          opacity={watermarkSettings.opacity}
+                          fontSize={watermarkSettings.size}
+                          fontWeight="bold"
+                          fontFamily="Arial, sans-serif"
+                        >
+                          {watermarkSettings.text}
+                        </text>
+                      </pattern>
+                      <rect width="100%" height="100%" fill="url(#watermark-pattern)" />
+                    </svg>
+                  </div>
+                )}
               </div>
             </div>
           );
