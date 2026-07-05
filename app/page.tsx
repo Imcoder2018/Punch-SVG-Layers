@@ -911,14 +911,6 @@ export default function App() {
             <Type className="w-4 h-4 mx-auto mb-1" />
             Punch
           </button>
-          <button
-            onClick={handleExportCombinedSvg}
-            disabled={layers.length === 0}
-            className="w-full py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-sm"
-          >
-            <FileDown className="w-4 h-4 mr-2" />
-            Export Combined Layers (SVG)
-          </button>
         </div>
 
         {/* Sidebar Content */}
@@ -1373,11 +1365,11 @@ export default function App() {
         </div>
 
         {/* Footer Actions */}
-        <div className="p-4 bg-white border-t border-gray-200 flex flex-col gap-3">
+        <div className="p-4 bg-white border-t border-gray-200 flex flex-col gap-2">
           <button
             onClick={handleExportShowcase}
             disabled={layers.length === 0}
-            className="w-full py-2.5 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-sm"
+            className="w-full py-2 text-sm bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-sm"
           >
             <Download className="w-4 h-4 mr-2" />
             Export Showcase (PNG)
@@ -1386,10 +1378,19 @@ export default function App() {
           <button
             onClick={handleDownloadPunchedSvgs}
             disabled={layers.length === 0}
-            className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-sm"
+            className="w-full py-2 text-sm bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-sm"
           >
             <FileDown className="w-4 h-4 mr-2" />
             Download Layers (ZIP)
+          </button>
+
+          <button
+            onClick={handleExportCombinedSvg}
+            disabled={layers.length === 0}
+            className="w-full py-2 text-sm bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-sm"
+          >
+            <FileDown className="w-4 h-4 mr-2" />
+            Export Combined (SVG)
           </button>
         </div>
       </div>
