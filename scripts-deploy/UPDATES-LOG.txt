@@ -1,0 +1,258 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                     UPDATES LOG - November 22, 2024                        ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+VERSION 1.1.0 - MAJOR IMPROVEMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 ISSUES FIXED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ FIXED: Scripts closing automatically without showing status
+   - Added proper pause commands to all scripts
+   - Added pause before exit on errors
+   - Improved error message display
+   - Scripts now wait for user input before closing
+
+✅ FIXED: change-account.bat not doing anything
+   - Improved error handling for GitHub CLI
+   - Added 2>&1 to gh auth status commands
+   - Better display of authentication status
+   - Shows "Not logged in" message when appropriate
+   - Improved git config display
+
+✅ FIXED: init-repo.bat not working properly
+   - Better error messages
+   - Improved GitHub CLI detection
+   - Enhanced fallback options
+   - Clearer prompts and status messages
+
+✅ ADDED: Full project revert capability
+   - NEW: revert-to-commit.bat script
+   - Can restore entire project to any past commit
+   - 4 different revert methods
+   - Comprehensive safety features
+
+
+🆕 NEW FEATURES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⭐ NEW SCRIPT: revert-to-commit.bat
+   Purpose: Restore entire project to any previous commit
+   
+   Features:
+   ✓ Shows last 20 commits for easy selection
+   ✓ 4 revert methods:
+     [1] Hard Reset - Complete revert (DANGEROUS but powerful)
+     [2] Soft Reset - Undo commits, keep changes staged
+     [3] Mixed Reset - Undo commits, keep changes unstaged
+     [4] Revert Commit - Safe for pushed commits
+   
+   ✓ Safety features:
+     - Requires "I UNDERSTAND" for hard reset
+     - Must confirm commit hash twice
+     - Auto-stashes uncommitted changes
+     - Shows what will be lost
+     - Cannot be accidentally triggered
+   
+   ✓ Additional features:
+     - Search commits by message
+     - View commit details before reverting
+     - Force push option for hard reset
+     - Restore stashed changes after revert
+   
+   Use cases:
+   - Deployed broken code to production
+   - Multiple bad commits need to be undone
+   - Project completely broken, need to restore
+   - Want to review old version of project
+
+
+📚 NEW DOCUMENTATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⭐ NEW FILE: TROUBLESHOOTING.md
+   - Comprehensive troubleshooting guide
+   - Solutions for all common issues
+   - Step-by-step fixes
+   - Emergency recovery procedures
+   - Diagnostic commands
+   - Prevention tips
+
+⭐ NEW FILE: UPDATES-LOG.txt (this file)
+   - Track all changes and improvements
+   - Version history
+   - Feature additions
+
+
+🔧 IMPROVEMENTS TO EXISTING SCRIPTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✓ change-account.bat
+   - Fixed gh auth status error handling
+   - Added 2>&1 to show all output
+   - Better "not logged in" detection
+   - Improved git config display with labels
+   - All outputs now visible
+
+✓ menu.bat
+   - Added revert-to-commit.bat option [15]
+   - Updated numbering (now goes to 20)
+   - Fixed error message range
+
+✓ README.md
+   - Added revert-to-commit documentation
+   - Comprehensive usage examples
+   - Safety warnings
+   - Method explanations
+
+✓ QUICK-REFERENCE.txt
+   - Added revert-to-commit to quick reference
+   - Added emergency restore workflow
+   - Updated emergency commands section
+
+✓ PROJECT-SUMMARY.txt
+   - Updated file count (24 files)
+   - Updated script count (20 scripts)
+   - Added revert-to-commit to inventory
+
+
+📊 STATISTICS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Total Files:           25 (was 24)
+Executable Scripts:    20 (was 19)
+Documentation Files:   5 (was 4)
+Total Lines of Code:   ~5,000 (was ~4,500)
+New Features:          1 major script + troubleshooting guide
+Issues Fixed:          4 critical issues
+
+
+🎯 WHAT'S CHANGED FOR USERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BEFORE:
+❌ Scripts closed immediately without showing errors
+❌ change-account.bat appeared to do nothing
+❌ init-repo.bat had unclear error messages
+❌ No way to restore entire project to past commit
+❌ Limited troubleshooting documentation
+
+AFTER:
+✅ All scripts pause and show status
+✅ change-account.bat shows clear authentication status
+✅ init-repo.bat has better error handling and messages
+✅ NEW: Can restore entire project with revert-to-commit.bat
+✅ Comprehensive TROUBLESHOOTING.md guide
+✅ All error messages visible before closing
+
+
+🚀 HOW TO USE NEW FEATURES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. RESTORE PROJECT TO PAST COMMIT:
+   - Run: revert-to-commit.bat
+   - Or: menu.bat → [15]
+   - Follow prompts to select commit and method
+
+2. FIX SCRIPT CLOSING ISSUES:
+   - All scripts now automatically pause
+   - If still having issues, see TROUBLESHOOTING.md
+
+3. FIX GITHUB ACCOUNT ISSUES:
+   - Run: change-account.bat
+   - Should now show clear status
+   - If GitHub CLI not installed, follow prompts
+
+4. GET HELP:
+   - Read: TROUBLESHOOTING.md
+   - Run: fix-git.bat → [11] Fix all
+   - Run: status.bat to see current state
+
+
+⚠️  IMPORTANT NOTES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. revert-to-commit.bat is POWERFUL
+   - Hard Reset is DESTRUCTIVE
+   - Always read warnings carefully
+   - Use Revert Commit method for pushed commits
+   - Test in development first
+
+2. All scripts now pause before closing
+   - You'll see all output
+   - Press any key to close
+   - Errors are displayed clearly
+
+3. GitHub CLI is optional but recommended
+   - Scripts work without it
+   - Manual fallbacks provided
+   - Download: https://cli.github.com/
+
+4. Git must be installed
+   - Required for all scripts
+   - Download: https://git-scm.com/downloads
+
+
+🔄 MIGRATION NOTES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+If you're updating from v1.0.0:
+
+1. Simply replace your scripts-deploy folder
+   - All existing scripts are improved
+   - New scripts added
+   - No breaking changes
+
+2. New menu options:
+   - [15] is now revert-to-commit.bat
+   - Old [15] stash-changes is now [16]
+   - Old [16] pull-latest is now [17]
+   - Old [17] change-account is now [18]
+   - Old [18] fix-git is now [19]
+   - Old [19] sync-fork is now [20]
+
+3. No configuration changes needed
+   - Everything works as before
+   - Plus new features
+
+
+📝 TESTING PERFORMED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✓ All scripts tested for pause functionality
+✓ change-account.bat tested with/without GitHub CLI
+✓ init-repo.bat tested with various scenarios
+✓ revert-to-commit.bat tested with all 4 methods
+✓ Menu navigation tested
+✓ Error handling verified
+✓ Documentation accuracy checked
+
+
+🎉 SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This update addresses all reported issues and adds powerful new functionality:
+
+✅ Fixed all script closing issues
+✅ Fixed change-account.bat visibility issues
+✅ Improved init-repo.bat error handling
+✅ Added full project revert capability
+✅ Added comprehensive troubleshooting guide
+✅ Improved all error messages
+✅ Enhanced user experience
+
+The scripts are now more robust, user-friendly, and powerful!
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
+Version: 1.1.0
+Release Date: November 22, 2024
+Previous Version: 1.0.0
+Scripts Updated: 4
+Scripts Added: 1
+Documentation Added: 2
+Total Files: 25
+
+═══════════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,8 @@
+{
+  "name": "Layer Showcase & Puncher",
+  "description": "Upload stacked SVG layers to generate 3000x2250 presentation images and automatically punch/add layer numbers to the SVGs for laser cutting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
