@@ -56,6 +56,14 @@ interface WatermarkSettings {
   gapY: number;
 }
 
+interface HeaderSettings {
+  enabled: boolean;
+  text: string;
+  color: string;
+  size: number;
+  yPos: number;
+}
+
 interface PunchSettings {
   enabled: boolean;
   startNumber: number;
@@ -178,6 +186,14 @@ export default function App() {
     angle: -45,
     gapX: 300,
     gapY: 300,
+  });
+
+  const [headerSettings, setHeaderSettings] = useState<HeaderSettings>({
+    enabled: false,
+    text: 'My Layered Design',
+    color: '#000000',
+    size: 100,
+    yPos: 100,
   });
 
   const [punchSettings, setPunchSettings] = useState<PunchSettings>({
@@ -757,6 +773,17 @@ export default function App() {
         ctx.restore();
       }
 
+      // Draw Header Title
+      if (headerSettings.enabled && headerSettings.text) {
+        ctx.save();
+        ctx.fillStyle = headerSettings.color;
+        ctx.font = `bold ${headerSettings.size}px Arial, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(headerSettings.text, canvas.width / 2, headerSettings.yPos);
+        ctx.restore();
+      }
+
       canvas.toBlob((blob) => {
         if (blob) {
           saveAs(blob, 'showcase.png');
@@ -1145,6 +1172,43 @@ export default function App() {
 
               <div className="pt-4 border-t border-gray-100">
                 <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-900">Header Title</h3>
+                  <div className="relative inline-block w-10 align-middle select-none transition duration-200 ease-in">
+                    <input type="checkbox" name="hdr-toggle" id="hdr-toggle" className="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out checked:translate-x-5 checked:border-blue-600" checked={headerSettings.enabled} onChange={(e) => setHeaderSettings({ ...headerSettings, enabled: e.target.checked })} />
+                    <label htmlFor="hdr-toggle" className="toggle-label block overflow-hidden h-5 rounded-full bg-gray-300 cursor-pointer"></label>
+                  </div>
+                </div>
+                
+                <div className={`space-y-4 ${!headerSettings.enabled ? 'opacity-50 pointer-events-none' : ''}`}>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Text</label>
+                    <input type="text" value={headerSettings.text} onChange={(e) => setHeaderSettings({ ...headerSettings, text: e.target.value })} className="w-full p-2 border border-gray-300 rounded text-sm focus:ring-blue-500 focus:border-blue-500" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Color</label>
+                      <div className="flex h-[38px]">
+                        <input type="color" value={headerSettings.color} onChange={(e) => setHeaderSettings({ ...headerSettings, color: e.target.value })} className="w-10 h-full border border-gray-300 rounded-l p-0 cursor-pointer" />
+                        <input type="text" value={headerSettings.color} onChange={(e) => setHeaderSettings({ ...headerSettings, color: e.target.value })} className="flex-1 w-full p-2 border border-gray-300 border-l-0 rounded-r text-sm focus:ring-blue-500 focus:border-blue-500" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Size</label>
+                      <input type="range" min="20" max="400" value={headerSettings.size} onChange={(e) => setHeaderSettings({ ...headerSettings, size: parseInt(e.target.value) })} className="w-full accent-gray-600 mt-2" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1 flex justify-between">
+                      <span>Top Margin</span>
+                      <span className="text-gray-500">{headerSettings.yPos}px</span>
+                    </label>
+                    <input type="range" min="0" max="1000" step="10" value={headerSettings.yPos} onChange={(e) => setHeaderSettings({ ...headerSettings, yPos: parseInt(e.target.value) })} className="w-full accent-gray-600" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-gray-100">
+                <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-semibold text-gray-900">Watermark</h3>
                   <div className="relative inline-block w-10 align-middle select-none transition duration-200 ease-in">
                     <input type="checkbox" name="wm-toggle" id="wm-toggle" className="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out checked:translate-x-5 checked:border-blue-600" checked={watermarkSettings.enabled} onChange={(e) => setWatermarkSettings({ ...watermarkSettings, enabled: e.target.checked })} />
@@ -1399,6 +1463,21 @@ export default function App() {
                     )
                   })}
                 </div>
+
+                {headerSettings.enabled && headerSettings.text && (
+                  <div
+                    className="absolute w-full text-center pointer-events-none z-50"
+                    style={{
+                      top: headerSettings.yPos,
+                      color: headerSettings.color,
+                      fontSize: headerSettings.size,
+                      fontWeight: 'bold',
+                      fontFamily: 'Arial, sans-serif'
+                    }}
+                  >
+                    {headerSettings.text}
+                  </div>
+                )}
 
                 {watermarkSettings.enabled && watermarkSettings.text && (
                   <div className="absolute inset-0 pointer-events-none z-50 overflow-hidden">
