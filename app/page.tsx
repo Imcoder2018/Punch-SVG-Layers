@@ -94,6 +94,47 @@ const DEFAULT_COLORS = [
   '#9CA3AF', // Gray
 ];
 
+const extractColorFromName = (name: string): string | null => {
+  const match = name.match(/(?:_|-)([a-fA-F0-9]{6})(?:_|-|\.svg|$)/i);
+  if (match) {
+    return `#${match[1].toLowerCase()}`;
+  }
+  return null;
+};
+
+const isValidHexColor = (color: string) => /^#(?:[0-9a-fA-F]{3}){1,2}$/.test(color);
+
+const normalizeHexColor = (color: string) => {
+  if (/^#[0-9a-fA-F]{3}$/.test(color)) {
+    return '#' + color[1] + color[1] + color[2] + color[2] + color[3] + color[3];
+  }
+  return color;
+};
+
+const getSvgColor = (node: Element): string | null => {
+  const fill = node.getAttribute('fill');
+  if (fill && fill !== 'none' && fill !== 'transparent') {
+    if (isValidHexColor(fill)) return normalizeHexColor(fill).toLowerCase();
+  }
+  
+  const style = node.getAttribute('style');
+  if (style) {
+    const fillMatch = style.match(/fill:\s*([^;]+)/);
+    if (fillMatch && fillMatch[1]) {
+      const color = fillMatch[1].trim();
+      if (color !== 'none' && color !== 'transparent') {
+        if (isValidHexColor(color)) return normalizeHexColor(color).toLowerCase();
+      }
+    }
+  }
+
+  for (let i = 0; i < node.children.length; i++) {
+    const childColor = getSvgColor(node.children[i]);
+    if (childColor) return childColor;
+  }
+  return null;
+};
+
 const getLayerOffsets = (
   count: number,
   preset: string,
@@ -304,12 +345,14 @@ export default function App() {
               newSvg.appendChild(child.cloneNode(true));
 
               const layerName = child.getAttribute('id') || child.getAttribute('data-name') || `${file.name.replace('.svg', '')} - Layer ${childIndex + 1}`;
+              const nameColor = extractColorFromName(layerName);
+              const extractedColor = nameColor || getSvgColor(child);
 
               const newLayer: SvgLayer = {
                 id: Math.random().toString(36).substring(7),
                 file,
                 content: new XMLSerializer().serializeToString(newSvg),
-                color: DEFAULT_COLORS[currentColorOffset % DEFAULT_COLORS.length],
+                color: extractedColor || DEFAULT_COLORS[currentColorOffset % DEFAULT_COLORS.length],
                 name: layerName,
                 opacity: 1,
                 width: baseW,
@@ -321,12 +364,15 @@ export default function App() {
             });
           } else {
             // Single layer
+            const baseName = file.name.replace('.svg', '');
+            const nameColor = extractColorFromName(baseName);
+            const extractedColor = nameColor || getSvgColor(svgElement);
             const newLayer: SvgLayer = {
               id: Math.random().toString(36).substring(7),
               file,
               content,
-              color: DEFAULT_COLORS[currentColorOffset % DEFAULT_COLORS.length],
-              name: file.name.replace('.svg', ''),
+              color: extractedColor || DEFAULT_COLORS[currentColorOffset % DEFAULT_COLORS.length],
+              name: baseName,
               opacity: 1,
               width: baseW,
               height: baseH,
@@ -1329,7 +1375,7 @@ export default function App() {
                       className="w-full p-2 border border-gray-300 rounded text-sm focus:ring-blue-500 focus:border-blue-500"
                     />
                     <p className="text-xs text-gray-400 mt-1">
-                      Required for Merge Paths — text-anchor styling can't be boolean-merged, only real glyph outlines can.
+                      Required for Merge Paths — text-anchor styling can&apos;t be boolean-merged, only real glyph outlines can.
                     </p>
                   </div>
 
