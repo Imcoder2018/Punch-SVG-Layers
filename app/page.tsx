@@ -201,6 +201,105 @@ const getLayerOffsets = (
   };
 };
 
+interface LayerRowProps {
+  layer: SvgLayer;
+  idx: number;
+  layersCount: number;
+  moveLayer: (index: number, direction: -1 | 1) => void;
+  updateLayer: (id: string, updates: Partial<SvgLayer>) => void;
+  removeLayer: (id: string) => void;
+}
+
+const LayerRow: React.FC<LayerRowProps> = ({
+  layer,
+  idx,
+  layersCount,
+  moveLayer,
+  updateLayer,
+  removeLayer,
+}) => {
+  const [hexInput, setHexInput] = useState(layer.color);
+
+  useEffect(() => {
+    setHexInput(layer.color);
+  }, [layer.color]);
+
+  const handleHexChange = (val: string) => {
+    setHexInput(val);
+    let cleanVal = val.trim();
+    if (cleanVal && !cleanVal.startsWith('#')) {
+      cleanVal = '#' + cleanVal;
+    }
+    if (isValidHexColor(cleanVal)) {
+      updateLayer(layer.id, { color: normalizeHexColor(cleanVal).toLowerCase() });
+    }
+  };
+
+  return (
+    <div className="p-3 bg-white border border-gray-200 rounded-lg shadow-sm flex items-center group transition-shadow hover:shadow-md">
+      <div className="flex flex-col mr-2 space-y-1">
+        <button
+          onClick={() => moveLayer(idx, -1)}
+          disabled={idx === 0}
+          className="text-gray-400 hover:text-gray-700 disabled:opacity-30"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+          </svg>
+        </button>
+        <button
+          onClick={() => moveLayer(idx, 1)}
+          disabled={idx === layersCount - 1}
+          className="text-gray-400 hover:text-gray-700 disabled:opacity-30"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+      </div>
+
+      <div
+        className="w-8 h-8 rounded shrink-0 mr-3 border border-gray-200 cursor-pointer overflow-hidden relative"
+        style={{ backgroundColor: layer.color }}
+      >
+        <input
+          type="color"
+          value={layer.color}
+          onChange={(e) => updateLayer(layer.id, { color: e.target.value })}
+          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+        />
+      </div>
+
+      <div className="flex-1 min-w-0 mr-2">
+        <input
+          type="text"
+          value={layer.name}
+          onChange={(e) => updateLayer(layer.id, { name: e.target.value })}
+          className="w-full text-sm font-medium bg-transparent border-none p-0 focus:ring-0 truncate"
+        />
+        <div className="text-xs text-gray-500 mt-1">Layer {idx + 1}</div>
+      </div>
+
+      <div className="shrink-0 mr-2">
+        <input
+          type="text"
+          value={hexInput}
+          onChange={(e) => handleHexChange(e.target.value)}
+          placeholder="#HEX"
+          className="w-20 text-xs border border-gray-200 rounded px-2 py-1 text-center font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900"
+        />
+      </div>
+
+      <button
+        onClick={() => removeLayer(layer.id)}
+        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+      >
+        <Trash2 className="w-4 h-4" />
+      </button>
+    </div>
+  );
+};
+
 export default function App() {
   const [layers, setLayers] = useState<SvgLayer[]>([]);
   const [activeTab, setActiveTab] = useState<'layers' | 'showcase' | 'punch'>('layers');
@@ -869,12 +968,6 @@ export default function App() {
 
     const combinedSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     combinedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    
-    if (firstRoot.hasAttribute('width')) combinedSvg.setAttribute('width', firstRoot.getAttribute('width')!);
-    else combinedSvg.setAttribute('width', unionW.toString());
-    
-    if (firstRoot.hasAttribute('height')) combinedSvg.setAttribute('height', firstRoot.getAttribute('height')!);
-    else combinedSvg.setAttribute('height', unionH.toString());
 
     if (firstRoot.hasAttribute('preserveAspectRatio')) {
       combinedSvg.setAttribute('preserveAspectRatio', firstRoot.getAttribute('preserveAspectRatio')!);
@@ -992,45 +1085,15 @@ export default function App() {
 
               <div className="space-y-2 mt-4">
                 {layers.map((layer, idx) => (
-                  <div key={layer.id} className="p-3 bg-white border border-gray-200 rounded-lg shadow-sm flex items-center group transition-shadow hover:shadow-md">
-                    <div className="flex flex-col mr-2 space-y-1">
-                      <button onClick={() => moveLayer(idx, -1)} disabled={idx === 0} className="text-gray-400 hover:text-gray-700 disabled:opacity-30">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
-                      </button>
-                      <button onClick={() => moveLayer(idx, 1)} disabled={idx === layers.length - 1} className="text-gray-400 hover:text-gray-700 disabled:opacity-30">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                      </button>
-                    </div>
-
-                    <div
-                      className="w-8 h-8 rounded shrink-0 mr-3 border border-gray-200 cursor-pointer overflow-hidden relative"
-                      style={{ backgroundColor: layer.color }}
-                    >
-                      <input
-                        type="color"
-                        value={layer.color}
-                        onChange={(e) => updateLayer(layer.id, { color: e.target.value })}
-                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                      />
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <input
-                        type="text"
-                        value={layer.name}
-                        onChange={(e) => updateLayer(layer.id, { name: e.target.value })}
-                        className="w-full text-sm font-medium bg-transparent border-none p-0 focus:ring-0 truncate"
-                      />
-                      <div className="text-xs text-gray-500 mt-1">Layer {idx + 1}</div>
-                    </div>
-
-                    <button
-                      onClick={() => removeLayer(layer.id)}
-                      className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors ml-2"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+                  <LayerRow
+                    key={layer.id}
+                    layer={layer}
+                    idx={idx}
+                    layersCount={layers.length}
+                    moveLayer={moveLayer}
+                    updateLayer={updateLayer}
+                    removeLayer={removeLayer}
+                  />
                 ))}
 
                 {layers.length === 0 && (
