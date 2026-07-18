@@ -303,15 +303,16 @@ const LayerRow: React.FC<LayerRowProps> = ({
 export default function App() {
   const [layers, setLayers] = useState<SvgLayer[]>([]);
   const [activeTab, setActiveTab] = useState<'layers' | 'showcase' | 'punch'>('layers');
+  const [bulkColorsInput, setBulkColorsInput] = useState('');
   const [showcaseSettings, setShowcaseSettings] = useState<ShowcaseSettings>({
-    preset: 'diagonal',
+    preset: 'stacked',
     spacingX: 80,
     spacingY: 60,
     scale: 0.8,
     dropShadowBlur: 20,
     dropShadowOffsetX: 15,
     dropShadowOffsetY: 15,
-    dropShadowOpacity: 0.4,
+    dropShadowOpacity: 0,
     backgroundColor: '#F3F4F6', // light gray
     canvasWidth: 3000,
     canvasHeight: 2250,
@@ -321,7 +322,7 @@ export default function App() {
     enabled: true,
     text: 'BetterCuts',
     color: '#000000',
-    opacity: 0.1,
+    opacity: 0.25,
     size: 48,
     angle: -45,
     gapX: 300,
@@ -337,13 +338,13 @@ export default function App() {
   });
 
   const [punchSettings, setPunchSettings] = useState<PunchSettings>({
-    enabled: true,
+    enabled: false,
     startNumber: 1,
     xPos: 20, // offset from edge
     yPos: 20,
-    align: 'right',
-    baseline: 'bottom',
-    fontSize: 200,
+    align: 'left',
+    baseline: 'top',
+    fontSize: 3000,
     fontFamily: 'Arial, sans-serif',
     color: '#000000',
     mirror: false,
@@ -382,6 +383,49 @@ export default function App() {
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const [previewScale, setPreviewScale] = useState(0.2);
 
+  const autoFitCanvas = (currentLayers = layers, preset = showcaseSettings.preset) => {
+    if (currentLayers.length === 0) return;
+    const baseW = currentLayers[0].width || 800;
+    const baseH = currentLayers[0].height || 800;
+    let bestScale = 1;
+    
+    // Auto fit math
+    if (preset.startsWith('grid') || preset === 'horizontal' || preset === 'vertical') {
+      // For these layouts we want them side-by-side with 5% padding
+      const padX = showcaseSettings.canvasWidth * 0.05;
+      const padY = showcaseSettings.canvasHeight * 0.05;
+      const availW = showcaseSettings.canvasWidth - 2 * padX;
+      const availH = showcaseSettings.canvasHeight - 2 * padY;
+      
+      let cols = currentLayers.length;
+      let rows = 1;
+      if (preset.startsWith('grid')) {
+        cols = preset === 'grid-auto' ? Math.ceil(Math.sqrt(currentLayers.length)) : parseInt(preset.split('-')[1]) || 4;
+        rows = Math.ceil(currentLayers.length / cols);
+      } else if (preset === 'vertical') {
+        cols = 1;
+        rows = currentLayers.length;
+      }
+
+      // we assume spacing is a standard 40px
+      const defaultGap = 40;
+      const totalW_unscaled = cols * baseW + (cols - 1) * defaultGap;
+      const totalH_unscaled = rows * baseH + (rows - 1) * defaultGap;
+
+      const scaleX = availW / totalW_unscaled;
+      const scaleY = availH / totalH_unscaled;
+      bestScale = Math.min(scaleX, scaleY);
+
+      setShowcaseSettings(s => ({ ...s, scale: bestScale, spacingX: defaultGap, spacingY: defaultGap }));
+    } else {
+      // For stacked, diagonal, circular, etc. just scale the first layer to fill most of the canvas
+      const availW = showcaseSettings.canvasWidth * 0.7;
+      const availH = showcaseSettings.canvasHeight * 0.7;
+      bestScale = Math.min(availW / baseW, availH / baseH);
+      setShowcaseSettings(s => ({ ...s, scale: bestScale }));
+    }
+  };
+
   useEffect(() => {
     if (!previewContainerRef.current) return;
     const observer = new ResizeObserver((entries) => {
@@ -396,94 +440,109 @@ export default function App() {
     return () => observer.disconnect();
   }, [showcaseSettings.canvasWidth, showcaseSettings.canvasHeight]);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
 
+    const fileList = Array.from(files).filter(
+      (file) => file.type === 'image/svg+xml' || file.name.endsWith('.svg')
+    );
+    if (fileList.length === 0) return;
+
     let currentColorOffset = layers.length;
+    const newLayersToAdd: SvgLayer[] = [];
 
-    Array.from(files).forEach((file, index) => {
-      if (file.type !== 'image/svg+xml' && !file.name.endsWith('.svg')) return;
+    // Helper to read file as text
+    const readFileAsText = (file: File): Promise<string> => {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (event) => resolve((event.target?.result as string) || '');
+        reader.readAsText(file);
+      });
+    };
 
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const content = event.target?.result as string;
-        if (content) {
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(content, 'image/svg+xml');
-          const svgElement = doc.documentElement;
+    for (const file of fileList) {
+      const content = await readFileAsText(file);
+      if (!content) continue;
 
-          let baseW = 800;
-          let baseH = 800;
-          const viewBox = svgElement.getAttribute('viewBox');
-          if (viewBox) {
-            const parts = viewBox.split(/[ ,]+/);
-            if (parts.length >= 4) {
-              baseW = parseFloat(parts[2]);
-              baseH = parseFloat(parts[3]);
-            }
-          } else {
-            baseW = parseFloat(svgElement.getAttribute('width') || '800');
-            baseH = parseFloat(svgElement.getAttribute('height') || '800');
-          }
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(content, 'image/svg+xml');
+      const svgElement = doc.documentElement;
 
-          // Try to extract layers if a single SVG has multiple top-level elements
-          const defsAndStyles = Array.from(svgElement.children).filter(el =>
-            ['defs', 'style', 'title', 'desc'].includes(el.tagName.toLowerCase())
-          );
-
-          const potentialLayers = Array.from(svgElement.children).filter(el =>
-            !['defs', 'style', 'title', 'desc'].includes(el.tagName.toLowerCase())
-          );
-
-          if (potentialLayers.length > 1) {
-            // Split into multiple layers
-            potentialLayers.forEach((child, childIndex) => {
-              const newSvg = svgElement.cloneNode(false) as Element;
-              defsAndStyles.forEach(def => newSvg.appendChild(def.cloneNode(true)));
-              newSvg.appendChild(child.cloneNode(true));
-
-              const layerName = child.getAttribute('id') || child.getAttribute('data-name') || `${file.name.replace('.svg', '')} - Layer ${childIndex + 1}`;
-              const nameColor = extractColorFromName(layerName);
-              const extractedColor = nameColor || getSvgColor(child);
-
-              const newLayer: SvgLayer = {
-                id: Math.random().toString(36).substring(7),
-                file,
-                content: new XMLSerializer().serializeToString(newSvg),
-                color: extractedColor || DEFAULT_COLORS[currentColorOffset % DEFAULT_COLORS.length],
-                name: layerName,
-                opacity: 1,
-                width: baseW,
-                height: baseH,
-                viewBox: viewBox || undefined,
-              };
-              currentColorOffset++;
-              setLayers((prev) => [...prev, newLayer]);
-            });
-          } else {
-            // Single layer
-            const baseName = file.name.replace('.svg', '');
-            const nameColor = extractColorFromName(baseName);
-            const extractedColor = nameColor || getSvgColor(svgElement);
-            const newLayer: SvgLayer = {
-              id: Math.random().toString(36).substring(7),
-              file,
-              content,
-              color: extractedColor || DEFAULT_COLORS[currentColorOffset % DEFAULT_COLORS.length],
-              name: baseName,
-              opacity: 1,
-              width: baseW,
-              height: baseH,
-              viewBox: viewBox || undefined,
-            };
-            currentColorOffset++;
-            setLayers((prev) => [...prev, newLayer]);
-          }
+      let baseW = 800;
+      let baseH = 800;
+      const viewBox = svgElement.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(/[ ,]+/);
+        if (parts.length >= 4) {
+          baseW = parseFloat(parts[2]);
+          baseH = parseFloat(parts[3]);
         }
-      };
-      reader.readAsText(file);
-    });
+      } else {
+        baseW = parseFloat(svgElement.getAttribute('width') || '800');
+        baseH = parseFloat(svgElement.getAttribute('height') || '800');
+      }
+
+      // Try to extract layers if a single SVG has multiple top-level elements
+      const defsAndStyles = Array.from(svgElement.children).filter(el =>
+        ['defs', 'style', 'title', 'desc'].includes(el.tagName.toLowerCase())
+      );
+
+      const potentialLayers = Array.from(svgElement.children).filter(el =>
+        !['defs', 'style', 'title', 'desc'].includes(el.tagName.toLowerCase())
+      );
+
+      if (potentialLayers.length > 1) {
+        // Split into multiple layers
+        potentialLayers.forEach((child, childIndex) => {
+          const newSvg = svgElement.cloneNode(false) as Element;
+          defsAndStyles.forEach(def => newSvg.appendChild(def.cloneNode(true)));
+          newSvg.appendChild(child.cloneNode(true));
+
+          const layerName = child.getAttribute('id') || child.getAttribute('data-name') || `${file.name.replace('.svg', '')} - Layer ${childIndex + 1}`;
+          const nameColor = extractColorFromName(layerName);
+          const extractedColor = nameColor || getSvgColor(child);
+
+          const newLayer: SvgLayer = {
+            id: Math.random().toString(36).substring(7),
+            file,
+            content: new XMLSerializer().serializeToString(newSvg),
+            color: extractedColor || DEFAULT_COLORS[currentColorOffset % DEFAULT_COLORS.length],
+            name: layerName,
+            opacity: 1,
+            width: baseW,
+            height: baseH,
+            viewBox: viewBox || undefined,
+          };
+          currentColorOffset++;
+          newLayersToAdd.push(newLayer);
+        });
+      } else {
+        // Single layer
+        const baseName = file.name.replace('.svg', '');
+        const nameColor = extractColorFromName(baseName);
+        const extractedColor = nameColor || getSvgColor(svgElement);
+        const newLayer: SvgLayer = {
+          id: Math.random().toString(36).substring(7),
+          file,
+          content,
+          color: extractedColor || DEFAULT_COLORS[currentColorOffset % DEFAULT_COLORS.length],
+          name: baseName,
+          opacity: 1,
+          width: baseW,
+          height: baseH,
+          viewBox: viewBox || undefined,
+        };
+        currentColorOffset++;
+        newLayersToAdd.push(newLayer);
+      }
+    }
+
+    if (newLayersToAdd.length > 0) {
+      const updatedLayers = [...layers, ...newLayersToAdd];
+      setLayers(updatedLayers);
+      autoFitCanvas(updatedLayers);
+    }
 
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -505,6 +564,28 @@ export default function App() {
     newLayers[index] = newLayers[index + direction];
     newLayers[index + direction] = temp;
     setLayers(newLayers);
+  };
+
+  const handleBulkColorsChange = (value: string) => {
+    setBulkColorsInput(value);
+    const parts = value.split(',')
+      .map(c => c.trim())
+      .filter(c => c.length > 0);
+
+    setLayers(prevLayers => 
+      prevLayers.map((layer, idx) => {
+        if (idx < parts.length) {
+          let cleanVal = parts[idx];
+          if (!cleanVal.startsWith('#')) {
+            cleanVal = '#' + cleanVal;
+          }
+          if (isValidHexColor(cleanVal)) {
+            return { ...layer, color: normalizeHexColor(cleanVal).toLowerCase() };
+          }
+        }
+        return layer;
+      })
+    );
   };
 
   // Extract SVG content and inject color
@@ -1027,6 +1108,52 @@ export default function App() {
           <p className="text-sm text-gray-500 mt-1">Export 3D layered presentations</p>
         </div>
 
+        {/* Shortcut Toggles */}
+        <div className="px-4 py-2.5 border-b border-gray-200 bg-gray-50 flex items-center justify-between gap-2 text-xs">
+          <button
+            onClick={() => setHeaderSettings(prev => ({ ...prev, enabled: !prev.enabled }))}
+            className={`flex-1 py-1.5 px-2 rounded-md font-medium border transition-all flex items-center justify-center gap-1.5 ${
+              headerSettings.enabled
+                ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm'
+                : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+            }`}
+          >
+            <span>Header</span>
+            <span className={`w-2 h-2 rounded-full transition-colors ${headerSettings.enabled ? 'bg-blue-600' : 'bg-gray-300'}`} />
+          </button>
+
+          <button
+            onClick={() => {
+              const nextEnabled = !watermarkSettings.enabled;
+              setWatermarkSettings(prev => ({
+                ...prev,
+                enabled: nextEnabled,
+                text: nextEnabled ? `${layers.length} Layers` : prev.text
+              }));
+            }}
+            className={`flex-1 py-1.5 px-2 rounded-md font-medium border transition-all flex items-center justify-center gap-1.5 ${
+              watermarkSettings.enabled
+                ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm'
+                : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+            }`}
+          >
+            <span>Watermark</span>
+            <span className={`w-2 h-2 rounded-full transition-colors ${watermarkSettings.enabled ? 'bg-blue-600' : 'bg-gray-300'}`} />
+          </button>
+
+          <button
+            onClick={() => setPunchSettings(prev => ({ ...prev, enabled: !prev.enabled }))}
+            className={`flex-1 py-1.5 px-2 rounded-md font-medium border transition-all flex items-center justify-center gap-1.5 ${
+              punchSettings.enabled
+                ? 'bg-purple-50 border-purple-200 text-purple-700 shadow-sm'
+                : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+            }`}
+          >
+            <span>Punch</span>
+            <span className={`w-2 h-2 rounded-full transition-colors ${punchSettings.enabled ? 'bg-purple-600' : 'bg-gray-300'}`} />
+          </button>
+        </div>
+
         {/* Tabs */}
         <div className="flex border-b border-gray-200 text-sm">
           <button
@@ -1075,6 +1202,20 @@ export default function App() {
                   Reverse
                 </button>
               </div>
+
+              {/* Paste bulk colors input bar */}
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-1.5">
+                <label className="block text-xs font-semibold text-gray-700">
+                  Bulk Color Palette (Comma-separated HEX)
+                </label>
+                <input
+                  type="text"
+                  value={bulkColorsInput}
+                  onChange={(e) => handleBulkColorsChange(e.target.value)}
+                  placeholder="e.g. #9d7769, #b4733b, #efcca9"
+                  className="w-full text-xs border border-gray-200 rounded px-2.5 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 placeholder-gray-400"
+                />
+              </div>
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="w-full py-3 px-4 bg-white border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-500 hover:bg-blue-50 transition-colors flex items-center justify-center font-medium shadow-sm"
@@ -1111,48 +1252,7 @@ export default function App() {
                 <div className="flex items-center justify-between mb-2">
                   <label className="block text-sm font-medium text-gray-700">Preset Layout</label>
                   <button
-                    onClick={() => {
-                      if (layers.length === 0) return;
-                      const baseW = layers[0].width || 800;
-                      const baseH = layers[0].height || 800;
-                      let bestScale = 1;
-                      
-                      // Auto fit math
-                      if (showcaseSettings.preset.startsWith('grid') || showcaseSettings.preset === 'horizontal' || showcaseSettings.preset === 'vertical') {
-                        // For these layouts we want them side-by-side with 5% padding
-                        const padX = showcaseSettings.canvasWidth * 0.05;
-                        const padY = showcaseSettings.canvasHeight * 0.05;
-                        const availW = showcaseSettings.canvasWidth - 2 * padX;
-                        const availH = showcaseSettings.canvasHeight - 2 * padY;
-                        
-                        let cols = layers.length;
-                        let rows = 1;
-                        if (showcaseSettings.preset.startsWith('grid')) {
-                          cols = showcaseSettings.preset === 'grid-auto' ? Math.ceil(Math.sqrt(layers.length)) : parseInt(showcaseSettings.preset.split('-')[1]) || 4;
-                          rows = Math.ceil(layers.length / cols);
-                        } else if (showcaseSettings.preset === 'vertical') {
-                          cols = 1;
-                          rows = layers.length;
-                        }
-
-                        // we assume spacing is a standard 40px
-                        const defaultGap = 40;
-                        const totalW_unscaled = cols * baseW + (cols - 1) * defaultGap;
-                        const totalH_unscaled = rows * baseH + (rows - 1) * defaultGap;
-
-                        const scaleX = availW / totalW_unscaled;
-                        const scaleY = availH / totalH_unscaled;
-                        bestScale = Math.min(scaleX, scaleY);
-
-                        setShowcaseSettings(s => ({ ...s, scale: bestScale, spacingX: defaultGap, spacingY: defaultGap }));
-                      } else {
-                        // For stacked, diagonal, circular, etc. just scale the first layer to fill most of the canvas
-                        const availW = showcaseSettings.canvasWidth * 0.7;
-                        const availH = showcaseSettings.canvasHeight * 0.7;
-                        bestScale = Math.min(availW / baseW, availH / baseH);
-                        setShowcaseSettings(s => ({ ...s, scale: bestScale }));
-                      }
-                    }}
+                    onClick={() => autoFitCanvas()}
                     className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200 transition-colors font-medium"
                   >
                     Auto Fit Canvas
@@ -1312,7 +1412,21 @@ export default function App() {
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-semibold text-gray-900">Watermark</h3>
                   <div className="relative inline-block w-10 align-middle select-none transition duration-200 ease-in">
-                    <input type="checkbox" name="wm-toggle" id="wm-toggle" className="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out checked:translate-x-5 checked:border-blue-600" checked={watermarkSettings.enabled} onChange={(e) => setWatermarkSettings({ ...watermarkSettings, enabled: e.target.checked })} />
+                    <input
+                      type="checkbox"
+                      name="wm-toggle"
+                      id="wm-toggle"
+                      className="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out checked:translate-x-5 checked:border-blue-600"
+                      checked={watermarkSettings.enabled}
+                      onChange={(e) => {
+                        const isEnabled = e.target.checked;
+                        setWatermarkSettings({
+                          ...watermarkSettings,
+                          enabled: isEnabled,
+                          text: isEnabled ? `${layers.length} Layers` : watermarkSettings.text
+                        });
+                      }}
+                    />
                     <label htmlFor="wm-toggle" className="toggle-label block overflow-hidden h-5 rounded-full bg-gray-300 cursor-pointer"></label>
                   </div>
                 </div>
