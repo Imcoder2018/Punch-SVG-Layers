@@ -1111,7 +1111,14 @@ export default function App() {
         {/* Shortcut Toggles */}
         <div className="px-4 py-2.5 border-b border-gray-200 bg-gray-50 flex items-center justify-between gap-2 text-xs">
           <button
-            onClick={() => setHeaderSettings(prev => ({ ...prev, enabled: !prev.enabled }))}
+            onClick={() => {
+              const nextEnabled = !headerSettings.enabled;
+              setHeaderSettings(prev => ({
+                ...prev,
+                enabled: nextEnabled,
+                text: nextEnabled ? `${layers.length} Layers` : prev.text
+              }));
+            }}
             className={`flex-1 py-1.5 px-2 rounded-md font-medium border transition-all flex items-center justify-center gap-1.5 ${
               headerSettings.enabled
                 ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm'
@@ -1123,14 +1130,7 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => {
-              const nextEnabled = !watermarkSettings.enabled;
-              setWatermarkSettings(prev => ({
-                ...prev,
-                enabled: nextEnabled,
-                text: nextEnabled ? `${layers.length} Layers` : prev.text
-              }));
-            }}
+            onClick={() => setWatermarkSettings(prev => ({ ...prev, enabled: !prev.enabled }))}
             className={`flex-1 py-1.5 px-2 rounded-md font-medium border transition-all flex items-center justify-center gap-1.5 ${
               watermarkSettings.enabled
                 ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm'
@@ -1375,7 +1375,21 @@ export default function App() {
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-semibold text-gray-900">Header Title</h3>
                   <div className="relative inline-block w-10 align-middle select-none transition duration-200 ease-in">
-                    <input type="checkbox" name="hdr-toggle" id="hdr-toggle" className="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out checked:translate-x-5 checked:border-blue-600" checked={headerSettings.enabled} onChange={(e) => setHeaderSettings({ ...headerSettings, enabled: e.target.checked })} />
+                    <input
+                      type="checkbox"
+                      name="hdr-toggle"
+                      id="hdr-toggle"
+                      className="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out checked:translate-x-5 checked:border-blue-600"
+                      checked={headerSettings.enabled}
+                      onChange={(e) => {
+                        const isEnabled = e.target.checked;
+                        setHeaderSettings({
+                          ...headerSettings,
+                          enabled: isEnabled,
+                          text: isEnabled ? `${layers.length} Layers` : headerSettings.text
+                        });
+                      }}
+                    />
                     <label htmlFor="hdr-toggle" className="toggle-label block overflow-hidden h-5 rounded-full bg-gray-300 cursor-pointer"></label>
                   </div>
                 </div>
@@ -1418,14 +1432,7 @@ export default function App() {
                       id="wm-toggle"
                       className="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out checked:translate-x-5 checked:border-blue-600"
                       checked={watermarkSettings.enabled}
-                      onChange={(e) => {
-                        const isEnabled = e.target.checked;
-                        setWatermarkSettings({
-                          ...watermarkSettings,
-                          enabled: isEnabled,
-                          text: isEnabled ? `${layers.length} Layers` : watermarkSettings.text
-                        });
-                      }}
+                      onChange={(e) => setWatermarkSettings({ ...watermarkSettings, enabled: e.target.checked })}
                     />
                     <label htmlFor="wm-toggle" className="toggle-label block overflow-hidden h-5 rounded-full bg-gray-300 cursor-pointer"></label>
                   </div>
