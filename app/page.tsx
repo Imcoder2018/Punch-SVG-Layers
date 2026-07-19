@@ -304,6 +304,9 @@ export default function App() {
   const [layers, setLayers] = useState<SvgLayer[]>([]);
   const [activeTab, setActiveTab] = useState<'layers' | 'showcase' | 'punch'>('layers');
   const [bulkColorsInput, setBulkColorsInput] = useState('');
+  const [copiedColors, setCopiedColors] = useState(false);
+  const [copiedImage, setCopiedImage] = useState(false);
+  const [exportPrefix, setExportPrefix] = useState('');
   const [showcaseSettings, setShowcaseSettings] = useState<ShowcaseSettings>({
     preset: 'stacked',
     spacingX: 80,
@@ -586,6 +589,21 @@ export default function App() {
         return layer;
       })
     );
+  };
+
+  const handleCopyLayerColors = () => {
+    const textToCopy = layers
+      .map((layer, idx) => `layer ${idx + 1} = ${layer.color}`)
+      .join('\n');
+    
+    navigator.clipboard.writeText(textToCopy)
+      .then(() => {
+        setCopiedColors(true);
+        setTimeout(() => setCopiedColors(false), 2000);
+      })
+      .catch((err) => {
+        console.error('Failed to copy colors: ', err);
+      });
   };
 
   // Extract SVG content and inject color
@@ -894,128 +912,150 @@ export default function App() {
     }
   };
 
-  const handleExportShowcase = () => {
-    if (!showcaseRef.current) return;
+  const getShowcaseCanvas = (): Promise<HTMLCanvasElement | null> => {
+    return new Promise((resolve) => {
+      if (!showcaseRef.current) return resolve(null);
 
-    // We will draw the showcase DOM to a canvas, or create a large SVG and download it.
-    // Since rendering HTML to Canvas reliably requires html2canvas which can be heavy/buggy with SVGs,
-    // let's construct a massive SVG containing all our SVGs as <g> tags and export that, OR 
-    // rely on a simpler canvas drawing approach by drawing SVGs to Canvas.
+      const canvas = document.createElement('canvas');
+      canvas.width = showcaseSettings.canvasWidth;
+      canvas.height = showcaseSettings.canvasHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return resolve(null);
 
-    const canvas = document.createElement('canvas');
-    canvas.width = showcaseSettings.canvasWidth;
-    canvas.height = showcaseSettings.canvasHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+      // Fill background
+      ctx.fillStyle = showcaseSettings.backgroundColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Fill background
-    ctx.fillStyle = showcaseSettings.backgroundColor;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // Calculate bounding box of all layers to center them
+      const layersCount = layers.length;
+      const baseW = layers[0]?.width || 800;
+      const baseH = layers[0]?.height || 800;
 
-    // Calculate bounding box of all layers to center them
-    const layersCount = layers.length;
-    const baseW = layers[0]?.width || 800;
-    const baseH = layers[0]?.height || 800;
+      const layout = getLayerOffsets(layersCount, showcaseSettings.preset, showcaseSettings.spacingX, showcaseSettings.spacingY, baseW, baseH, showcaseSettings.scale);
 
-    const layout = getLayerOffsets(layersCount, showcaseSettings.preset, showcaseSettings.spacingX, showcaseSettings.spacingY, baseW, baseH, showcaseSettings.scale);
+      let imagesLoaded = layers.map((layer, index) => {
+        return new Promise<{ img: HTMLImageElement, xOff: number, yOff: number, drawW: number, drawH: number, opacity: number, w: number, h: number }>((resolveImg) => {
+          let xOff = layout.offsets[index].x;
+          let yOff = layout.offsets[index].y;
 
-    let imagesLoaded = layers.map((layer, index) => {
-      return new Promise<{ img: HTMLImageElement, xOff: number, yOff: number, drawW: number, drawH: number, opacity: number, w: number, h: number }>((resolve) => {
-        let xOff = layout.offsets[index].x;
-        let yOff = layout.offsets[index].y;
+          const img = new Image();
 
-        const img = new Image();
+          // Ensure SVG has explicit width and height for canvas rendering
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(layer.content, 'image/svg+xml');
+          const svgElement = doc.documentElement;
+          let w = layer.width || 800;
+          let h = layer.height || 800;
+          svgElement.setAttribute('width', w.toString());
+          svgElement.setAttribute('height', h.toString());
+          const contentWithDims = new XMLSerializer().serializeToString(svgElement);
 
-        // Ensure SVG has explicit width and height for canvas rendering
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(layer.content, 'image/svg+xml');
-        const svgElement = doc.documentElement;
-        let w = layer.width || 800;
-        let h = layer.height || 800;
-        svgElement.setAttribute('width', w.toString());
-        svgElement.setAttribute('height', h.toString());
-        const contentWithDims = new XMLSerializer().serializeToString(svgElement);
+          // Add punch numbers if enabled (skip if this layer was already vector-merged)
+          let finalContent = contentWithDims;
+          if (punchSettings.enabled && !mergedLayerIds.has(layer.id)) {
+            finalContent = punchNumberToSvg(finalContent, punchSettings.startNumber + index);
+          }
 
-        // Add punch numbers if enabled (skip if this layer was already vector-merged)
-        let finalContent = contentWithDims;
-        if (punchSettings.enabled && !mergedLayerIds.has(layer.id)) {
-          finalContent = punchNumberToSvg(finalContent, punchSettings.startNumber + index);
+          const svgContent = processSvgContent(finalContent, layer.color);
+          const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgContent);
+
+          img.onload = () => {
+            const drawW = w * showcaseSettings.scale;
+            const drawH = h * showcaseSettings.scale;
+            resolveImg({ img, xOff, yOff, drawW, drawH, opacity: layer.opacity, w, h });
+          };
+          img.src = url;
+        });
+      });
+
+      Promise.all(imagesLoaded).then((loadedImages) => {
+        const drawFirst = loadedImages[0];
+        const startX = (canvas.width - layout.totalWidth - (drawFirst ? drawFirst.drawW : 800)) / 2 - layout.minX;
+        const startY = (canvas.height - layout.totalHeight - (drawFirst ? drawFirst.drawH : 800)) / 2 - layout.minY;
+
+        // Draw in normal order (0 is bottom, highest index is top)
+        for (let i = 0; i < loadedImages.length; i++) {
+          const item = loadedImages[i];
+          ctx.save();
+          // Drop shadow
+          ctx.shadowColor = `rgba(0,0,0,${showcaseSettings.dropShadowOpacity})`;
+          ctx.shadowBlur = showcaseSettings.dropShadowBlur;
+          ctx.shadowOffsetX = showcaseSettings.dropShadowOffsetX;
+          ctx.shadowOffsetY = showcaseSettings.dropShadowOffsetY;
+
+          ctx.globalAlpha = item.opacity;
+          ctx.drawImage(item.img, startX + item.xOff, startY + item.yOff, item.drawW, item.drawH);
+          ctx.restore();
         }
 
-        const svgContent = processSvgContent(finalContent, layer.color);
-        const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgContent);
+        // Draw Watermark
+        if (watermarkSettings.enabled && watermarkSettings.text) {
+          ctx.save();
+          ctx.globalAlpha = watermarkSettings.opacity;
+          ctx.fillStyle = watermarkSettings.color;
+          ctx.font = `bold ${watermarkSettings.size}px Arial, sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          
+          const angleRad = (watermarkSettings.angle * Math.PI) / 180;
+          const diag = Math.sqrt(canvas.width * canvas.width + canvas.height * canvas.height);
+          const stepsX = Math.ceil(diag / watermarkSettings.gapX) * 2;
+          const stepsY = Math.ceil(diag / watermarkSettings.gapY) * 2;
+          
+          ctx.translate(canvas.width / 2, canvas.height / 2);
+          ctx.rotate(angleRad);
+          
+          for (let ix = -stepsX; ix <= stepsX; ix++) {
+            for (let iy = -stepsY; iy <= stepsY; iy++) {
+              ctx.fillText(watermarkSettings.text, ix * watermarkSettings.gapX, iy * watermarkSettings.gapY);
+            }
+          }
+          ctx.restore();
+        }
 
-        img.onload = () => {
-          const drawW = w * showcaseSettings.scale;
-          const drawH = h * showcaseSettings.scale;
-          resolve({ img, xOff, yOff, drawW, drawH, opacity: layer.opacity, w, h });
-        };
-        img.src = url;
+        // Draw Header Title
+        if (headerSettings.enabled && headerSettings.text) {
+          ctx.save();
+          ctx.fillStyle = headerSettings.color;
+          ctx.font = `bold ${headerSettings.size}px Arial, sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'top';
+          ctx.fillText(headerSettings.text, canvas.width / 2, headerSettings.yPos);
+          ctx.restore();
+        }
+
+        resolve(canvas);
       });
     });
+  };
 
-    Promise.all(imagesLoaded).then((loadedImages) => {
-      const drawFirst = loadedImages[0];
-      const startX = (canvas.width - layout.totalWidth - (drawFirst ? drawFirst.drawW : 800)) / 2 - layout.minX;
-      const startY = (canvas.height - layout.totalHeight - (drawFirst ? drawFirst.drawH : 800)) / 2 - layout.minY;
-
-      // Draw in normal order (0 is bottom, highest index is top)
-      for (let i = 0; i < loadedImages.length; i++) {
-        const item = loadedImages[i];
-        ctx.save();
-        // Drop shadow
-        ctx.shadowColor = `rgba(0,0,0,${showcaseSettings.dropShadowOpacity})`;
-        ctx.shadowBlur = showcaseSettings.dropShadowBlur;
-        ctx.shadowOffsetX = showcaseSettings.dropShadowOffsetX;
-        ctx.shadowOffsetY = showcaseSettings.dropShadowOffsetY;
-
-        ctx.globalAlpha = item.opacity;
-        ctx.drawImage(item.img, startX + item.xOff, startY + item.yOff, item.drawW, item.drawH);
-        ctx.restore();
+  const handleExportShowcase = async () => {
+    const canvas = await getShowcaseCanvas();
+    if (!canvas) return;
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const prefix = exportPrefix.trim() ? `${exportPrefix.trim()}_` : '';
+        saveAs(blob, `${prefix}showcase.png`);
       }
+    }, 'image/png');
+  };
 
-      // Draw Watermark
-      if (watermarkSettings.enabled && watermarkSettings.text) {
-        ctx.save();
-        ctx.globalAlpha = watermarkSettings.opacity;
-        ctx.fillStyle = watermarkSettings.color;
-        ctx.font = `bold ${watermarkSettings.size}px Arial, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        
-        const angleRad = (watermarkSettings.angle * Math.PI) / 180;
-        const diag = Math.sqrt(canvas.width * canvas.width + canvas.height * canvas.height);
-        const stepsX = Math.ceil(diag / watermarkSettings.gapX) * 2;
-        const stepsY = Math.ceil(diag / watermarkSettings.gapY) * 2;
-        
-        ctx.translate(canvas.width / 2, canvas.height / 2);
-        ctx.rotate(angleRad);
-        
-        for (let ix = -stepsX; ix <= stepsX; ix++) {
-          for (let iy = -stepsY; iy <= stepsY; iy++) {
-            ctx.fillText(watermarkSettings.text, ix * watermarkSettings.gapX, iy * watermarkSettings.gapY);
-          }
-        }
-        ctx.restore();
+  const handleCopyShowcaseImage = async () => {
+    const canvas = await getShowcaseCanvas();
+    if (!canvas) return;
+    canvas.toBlob((blob) => {
+      if (blob) {
+        navigator.clipboard.write([
+          new ClipboardItem({ 'image/png': blob })
+        ]).then(() => {
+          setCopiedImage(true);
+          setTimeout(() => setCopiedImage(false), 2000);
+        }).catch((err) => {
+          console.error('Failed to copy image: ', err);
+          alert('Failed to copy image to clipboard.');
+        });
       }
-
-      // Draw Header Title
-      if (headerSettings.enabled && headerSettings.text) {
-        ctx.save();
-        ctx.fillStyle = headerSettings.color;
-        ctx.font = `bold ${headerSettings.size}px Arial, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        ctx.fillText(headerSettings.text, canvas.width / 2, headerSettings.yPos);
-        ctx.restore();
-      }
-
-      canvas.toBlob((blob) => {
-        if (blob) {
-          saveAs(blob, 'showcase.png');
-        }
-      }, 'image/png');
-    });
+    }, 'image/png');
   };
 
   const handleExportCombinedSvg = () => {
@@ -1082,7 +1122,8 @@ export default function App() {
     svgString = '<?xml version="1.0" encoding="utf-8"?>\n' + svgString;
 
     const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-    saveAs(blob, 'combined_layers.svg');
+    const prefix = exportPrefix.trim() ? `${exportPrefix.trim()}_` : '';
+    saveAs(blob, `${prefix}combined_layers.svg`);
   };
 
   const handleDownloadPunchedSvgs = async () => {
@@ -1106,6 +1147,17 @@ export default function App() {
         <div className="p-4 border-b border-gray-200 bg-white">
           <h1 className="text-xl font-semibold tracking-tight">Layer Showcase</h1>
           <p className="text-sm text-gray-500 mt-1">Export 3D layered presentations</p>
+        </div>
+
+        {/* Filename Prefix Input */}
+        <div className="px-4 py-2 bg-white border-b border-gray-200">
+          <input
+            type="text"
+            value={exportPrefix}
+            onChange={(e) => setExportPrefix(e.target.value)}
+            placeholder="Filename Prefix (e.g. MyProject)"
+            className="w-full text-xs border border-gray-200 rounded px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-gray-50 text-gray-900 placeholder-gray-400 font-medium"
+          />
         </div>
 
         {/* Shortcut Toggles */}
@@ -1223,6 +1275,30 @@ export default function App() {
                 <Upload className="w-4 h-4 mr-2" />
                 Upload SVGs
               </button>
+
+              {layers.length > 0 && (
+                <div className="flex justify-between items-center mt-6 mb-2">
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Layers List
+                  </span>
+                  <button
+                    onClick={handleCopyLayerColors}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 bg-blue-50 hover:bg-blue-100 transition-colors py-1 px-2.5 rounded-md shadow-sm border border-blue-100"
+                  >
+                    {copiedColors ? (
+                      <>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-green-600"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <span className="text-green-600 font-semibold">Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
+                        <span>Copy Colors</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
 
               <div className="space-y-2 mt-4">
                 {layers.map((layer, idx) => (
@@ -1595,32 +1671,58 @@ export default function App() {
         </div>
 
         {/* Footer Actions */}
-        <div className="p-4 bg-white border-t border-gray-200 flex flex-col gap-2">
+        <div className="p-3 bg-white border-t border-gray-200 grid grid-cols-2 gap-2 text-xs">
           <button
             onClick={handleExportShowcase}
             disabled={layers.length === 0}
-            className="w-full py-2 text-sm bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-sm"
+            className="py-2 px-1 bg-gray-900 hover:bg-gray-800 text-white rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1 shadow-sm text-center"
+            title="Export Showcase (PNG)"
           >
-            <Download className="w-4 h-4 mr-2" />
-            Export Showcase (PNG)
+            <Download className="w-3.5 h-3.5" />
+            <span>Export PNG</span>
+          </button>
+
+          <button
+            onClick={handleCopyShowcaseImage}
+            disabled={layers.length === 0}
+            className={`py-2 px-1 border rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1 shadow-sm text-center ${
+              copiedImage
+                ? 'bg-green-50 border-green-200 text-green-700 font-semibold'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+            }`}
+            title="Copy Image to Clipboard"
+          >
+            {copiedImage ? (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-green-600"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>Copied!</span>
+              </>
+            ) : (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
+                <span>Copy Image</span>
+              </>
+            )}
           </button>
 
           <button
             onClick={handleDownloadPunchedSvgs}
             disabled={layers.length === 0}
-            className="w-full py-2 text-sm bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-sm"
+            className="py-2 px-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1 shadow-sm text-center"
+            title="Download Layers (ZIP)"
           >
-            <FileDown className="w-4 h-4 mr-2" />
-            Download Layers (ZIP)
+            <FileDown className="w-3.5 h-3.5" />
+            <span>Layers ZIP</span>
           </button>
 
           <button
             onClick={handleExportCombinedSvg}
             disabled={layers.length === 0}
-            className="w-full py-2 text-sm bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-sm"
+            className="py-2 px-1 bg-green-600 hover:bg-green-700 text-white rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1 shadow-sm text-center"
+            title="Export Combined (SVG)"
           >
-            <FileDown className="w-4 h-4 mr-2" />
-            Export Combined (SVG)
+            <FileDown className="w-3.5 h-3.5" />
+            <span>Combined SVG</span>
           </button>
         </div>
       </div>
