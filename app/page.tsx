@@ -102,6 +102,20 @@ const extractColorFromName = (name: string): string | null => {
   return null;
 };
 
+const updateNameColor = (name: string, oldColor: string, newColor: string): string => {
+  const match = name.match(/(?:_|-)([a-fA-F0-9]{6})(?:_|-|\.svg|$)/i);
+  if (match && typeof match.index === 'number') {
+    const matchedHex = match[1];
+    if (matchedHex.toLowerCase() === oldColor.replace('#', '').toLowerCase()) {
+      const newHex = newColor.replace('#', '').toLowerCase();
+      const index = match.index + (match[0].startsWith('_') || match[0].startsWith('-') ? 1 : 0);
+      return name.slice(0, index) + newHex + name.slice(index + 6);
+    }
+  }
+  return name;
+};
+
+
 const isValidHexColor = (color: string) => /^#(?:[0-9a-fA-F]{3}){1,2}$/.test(color);
 
 const normalizeHexColor = (color: string) => {
@@ -111,20 +125,73 @@ const normalizeHexColor = (color: string) => {
   return color;
 };
 
+const parseToHexColor = (colorStr: string): string | null => {
+  if (!colorStr) return null;
+  const trimmed = colorStr.trim();
+  if (trimmed === 'none' || trimmed === 'transparent') return null;
+
+  if (isValidHexColor(trimmed)) {
+    return normalizeHexColor(trimmed).toLowerCase();
+  }
+  
+  if (/^[0-9a-fA-F]{6}$/.test(trimmed)) {
+    return `#${trimmed.toLowerCase()}`;
+  }
+  if (/^[0-9a-fA-F]{3}$/.test(trimmed)) {
+    return `#${trimmed[0]}${trimmed[0]}${trimmed[1]}${trimmed[1]}${trimmed[2]}${trimmed[2]}`.toLowerCase();
+  }
+
+  const rgbMatch = trimmed.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (rgbMatch) {
+    const r = Math.min(255, Math.max(0, parseInt(rgbMatch[1], 10)));
+    const g = Math.min(255, Math.max(0, parseInt(rgbMatch[2], 10)));
+    const b = Math.min(255, Math.max(0, parseInt(rgbMatch[3], 10)));
+    const toHex = (n: number) => n.toString(16).padStart(2, '0');
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  }
+
+  if (typeof document !== 'undefined') {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1;
+      canvas.height = 1;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = trimmed;
+        const normalized = ctx.fillStyle;
+        if (isValidHexColor(normalized)) {
+          return normalizeHexColor(normalized).toLowerCase();
+        }
+        const match = normalized.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+        if (match) {
+          const r = parseInt(match[1], 10);
+          const g = parseInt(match[2], 10);
+          const b = parseInt(match[3], 10);
+          const toHex = (n: number) => n.toString(16).padStart(2, '0');
+          return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  return null;
+};
+
 const getSvgColor = (node: Element): string | null => {
   const fill = node.getAttribute('fill');
-  if (fill && fill !== 'none' && fill !== 'transparent') {
-    if (isValidHexColor(fill)) return normalizeHexColor(fill).toLowerCase();
+  if (fill) {
+    const parsed = parseToHexColor(fill);
+    if (parsed) return parsed;
   }
   
   const style = node.getAttribute('style');
   if (style) {
     const fillMatch = style.match(/fill:\s*([^;]+)/);
     if (fillMatch && fillMatch[1]) {
-      const color = fillMatch[1].trim();
-      if (color !== 'none' && color !== 'transparent') {
-        if (isValidHexColor(color)) return normalizeHexColor(color).toLowerCase();
-      }
+      const parsed = parseToHexColor(fillMatch[1].trim());
+      if (parsed) return parsed;
     }
   }
 
@@ -322,7 +389,7 @@ export default function App() {
   });
 
   const [watermarkSettings, setWatermarkSettings] = useState<WatermarkSettings>({
-    enabled: true,
+    enabled: false,
     text: 'BetterCuts',
     color: '#000000',
     opacity: 0.25,
@@ -336,8 +403,8 @@ export default function App() {
     enabled: false,
     text: 'My Layered Design',
     color: '#000000',
-    size: 100,
-    yPos: 100,
+    size: 17,
+    yPos: 0,
   });
 
   const [punchSettings, setPunchSettings] = useState<PunchSettings>({
@@ -557,8 +624,18 @@ export default function App() {
   };
 
   const updateLayer = (id: string, updates: Partial<SvgLayer>) => {
-    setLayers(layers.map(l => l.id === id ? { ...l, ...updates } : l));
+    setLayers(layers.map(l => {
+      if (l.id === id) {
+        const newLayer = { ...l, ...updates };
+        if (updates.color && l.color !== updates.color) {
+          newLayer.name = updateNameColor(l.name, l.color, updates.color);
+        }
+        return newLayer;
+      }
+      return l;
+    }));
   };
+
 
   const moveLayer = (index: number, direction: -1 | 1) => {
     if (index + direction < 0 || index + direction >= layers.length) return;
@@ -583,13 +660,16 @@ export default function App() {
             cleanVal = '#' + cleanVal;
           }
           if (isValidHexColor(cleanVal)) {
-            return { ...layer, color: normalizeHexColor(cleanVal).toLowerCase() };
+            const newColor = normalizeHexColor(cleanVal).toLowerCase();
+            const newName = updateNameColor(layer.name, layer.color, newColor);
+            return { ...layer, color: newColor, name: newName };
           }
         }
         return layer;
       })
     );
   };
+
 
   const handleCopyLayerColors = () => {
     const textToCopy = layers
@@ -1206,6 +1286,52 @@ export default function App() {
           </button>
         </div>
 
+        {/* Preset Layout Quick Toggles */}
+        <div className="px-4 py-2.5 border-b border-gray-200 bg-gray-50 text-xs space-y-1.5">
+          <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Preset Layout</div>
+          <div className="flex items-center justify-between gap-1.5">
+            <button
+              onClick={() => {
+                setShowcaseSettings(s => ({ ...s, preset: 'grid-auto' }));
+                autoFitCanvas(layers, 'grid-auto');
+              }}
+              className={`flex-1 py-1.5 px-2 rounded-md font-medium border transition-all text-center ${
+                showcaseSettings.preset === 'grid-auto'
+                  ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm font-semibold'
+                  : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+              }`}
+            >
+              Grid Auto
+            </button>
+            <button
+              onClick={() => {
+                setShowcaseSettings(s => ({ ...s, preset: 'horizontal' }));
+                autoFitCanvas(layers, 'horizontal');
+              }}
+              className={`flex-1 py-1.5 px-2 rounded-md font-medium border transition-all text-center ${
+                showcaseSettings.preset === 'horizontal'
+                  ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm font-semibold'
+                  : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+              }`}
+            >
+              Horizontal
+            </button>
+            <button
+              onClick={() => {
+                setShowcaseSettings(s => ({ ...s, preset: 'stacked' }));
+                autoFitCanvas(layers, 'stacked');
+              }}
+              className={`flex-1 py-1.5 px-2 rounded-md font-medium border transition-all text-center ${
+                showcaseSettings.preset === 'stacked'
+                  ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm font-semibold'
+                  : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+              }`}
+            >
+              Stacked
+            </button>
+          </div>
+        </div>
+
         {/* Tabs */}
         <div className="flex border-b border-gray-200 text-sm">
           <button
@@ -1485,7 +1611,7 @@ export default function App() {
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">Size</label>
-                      <input type="range" min="20" max="400" value={headerSettings.size} onChange={(e) => setHeaderSettings({ ...headerSettings, size: parseInt(e.target.value) })} className="w-full accent-gray-600 mt-2" />
+                      <input type="range" min="1" max="400" value={headerSettings.size} onChange={(e) => setHeaderSettings({ ...headerSettings, size: parseInt(e.target.value) })} className="w-full accent-gray-600 mt-2" />
                     </div>
                   </div>
                   <div>
