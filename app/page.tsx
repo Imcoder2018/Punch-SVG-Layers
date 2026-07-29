@@ -374,6 +374,20 @@ export default function App() {
   const [copiedColors, setCopiedColors] = useState(false);
   const [copiedImage, setCopiedImage] = useState(false);
   const [exportPrefix, setExportPrefix] = useState('');
+  const [uploadedFileName, setUploadedFileName] = useState('');
+
+  const getOriginalFileName = (): string => {
+    if (uploadedFileName) return uploadedFileName;
+    if (layers.length > 0) {
+      if (layers[0].file?.name) {
+        return layers[0].file.name.replace(/\.svg$/i, '');
+      }
+      if (layers[0].name) {
+        return layers[0].name.replace(/\.svg$/i, '');
+      }
+    }
+    return '';
+  };
   const [showcaseSettings, setShowcaseSettings] = useState<ShowcaseSettings>({
     preset: 'stacked',
     spacingX: 80,
@@ -403,7 +417,7 @@ export default function App() {
     enabled: false,
     text: 'My Layered Design',
     color: '#000000',
-    size: 17,
+    size: 157,
     yPos: 0,
   });
 
@@ -519,6 +533,10 @@ export default function App() {
     );
     if (fileList.length === 0) return;
 
+    if (fileList.length > 0) {
+      setUploadedFileName(fileList[0].name.replace(/\.svg$/i, ''));
+    }
+
     let currentColorOffset = layers.length;
     const newLayersToAdd: SvgLayer[] = [];
 
@@ -620,7 +638,11 @@ export default function App() {
   };
 
   const removeLayer = (id: string) => {
-    setLayers(layers.filter(l => l.id !== id));
+    const updated = layers.filter(l => l.id !== id);
+    setLayers(updated);
+    if (updated.length === 0) {
+      setUploadedFileName('');
+    }
   };
 
   const updateLayer = (id: string, updates: Partial<SvgLayer>) => {
@@ -1115,7 +1137,10 @@ export default function App() {
     canvas.toBlob((blob) => {
       if (blob) {
         const prefix = exportPrefix.trim() ? `${exportPrefix.trim()}_` : '';
-        saveAs(blob, `${prefix}showcase.png`);
+        const origName = getOriginalFileName();
+        const countSuffix = layers.length > 0 ? `-${layers.length}` : '';
+        const suffix = origName ? `_${origName}${countSuffix}` : countSuffix;
+        saveAs(blob, `${prefix}showcase${suffix}.png`);
       }
     }, 'image/png');
   };
@@ -1203,21 +1228,30 @@ export default function App() {
 
     const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
     const prefix = exportPrefix.trim() ? `${exportPrefix.trim()}_` : '';
-    saveAs(blob, `${prefix}combined_layers.svg`);
+    const origName = getOriginalFileName();
+    const countSuffix = layers.length > 0 ? `-${layers.length}` : '';
+    const suffix = origName ? `_${origName}${countSuffix}` : countSuffix;
+    saveAs(blob, `${prefix}combined_layers${suffix}.svg`);
   };
 
   const handleDownloadPunchedSvgs = async () => {
     const zip = new JSZip();
+    const prefix = exportPrefix.trim() ? `${exportPrefix.trim()}_` : '';
+    const origName = getOriginalFileName();
+    const countSuffix = layers.length > 0 ? `-${layers.length}` : '';
+    const zipSuffix = origName ? `_${origName}${countSuffix}` : countSuffix;
 
     layers.forEach((layer, idx) => {
       const num = punchSettings.startNumber + idx;
       const alreadyMerged = mergedLayerIds.has(layer.id);
       const punchedContent = (punchSettings.enabled && !alreadyMerged) ? punchNumberToSvg(layer.content, num) : layer.content;
-      zip.file(`${layer.name}_layer${num}.svg`, punchedContent);
+      const layerOrigName = layer.file?.name ? layer.file.name.replace(/\.svg$/i, '') : origName;
+      const fileSuffix = layerOrigName ? `_${layerOrigName}${countSuffix}` : countSuffix;
+      zip.file(`${layer.name}_layer${num}${fileSuffix}.svg`, punchedContent);
     });
 
     const content = await zip.generateAsync({ type: 'blob' });
-    saveAs(content, 'punched_layers.zip');
+    saveAs(content, `${prefix}punched_layers${zipSuffix}.zip`);
   };
 
   return (
