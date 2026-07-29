@@ -1231,7 +1231,7 @@ export default function App() {
     const origName = getOriginalFileName();
     const countSuffix = layers.length > 0 ? `-${layers.length}` : '';
     const suffix = origName ? `_${origName}${countSuffix}` : countSuffix;
-    saveAs(blob, `${prefix}combined_layers${suffix}.svg`);
+    saveAs(blob, `${prefix}C${suffix}.svg`);
   };
 
   const handleDownloadPunchedSvgs = async () => {
@@ -1251,7 +1251,7 @@ export default function App() {
     });
 
     const content = await zip.generateAsync({ type: 'blob' });
-    saveAs(content, `${prefix}punched_layers${zipSuffix}.zip`);
+    saveAs(content, `${prefix}Layers${zipSuffix}.zip`);
   };
 
   return (
